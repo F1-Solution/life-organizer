@@ -1,0 +1,17 @@
+# Personal data never leaves this machine
+inbox/
+data/
+output/
+.playwright-mcp/
+
+# Secrets and sessions
+*.session
+*.env
+client_secret*.json
+credentials*.json
+
+# Tool caches
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
