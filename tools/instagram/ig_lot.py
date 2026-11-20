@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
 from playwright.sync_api import sync_playwright
 
 PROFILE = Path(os.environ["USERPROFILE"]) / ".config" / "instagram-reader" / "profile"
@@ -51,7 +52,10 @@ def clean(href: str) -> str | None:
 
 
 def read_thread(page, name: str) -> dict:
-    page.goto("https://www.instagram.com/direct/inbox/")
+    try:
+        page.goto("https://www.instagram.com/direct/inbox/", wait_until="domcontentloaded", timeout=60000)
+    except PlaywrightTimeout:
+        return {"name": name, "error": "inbox non caricata"}
     page.wait_for_timeout(7000)
     if not page.evaluate(JS_OPEN, name):
         return {"name": name, "error": "thread non trovato"}

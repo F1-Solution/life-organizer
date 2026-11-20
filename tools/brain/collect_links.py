@@ -130,6 +130,13 @@ def read_outlook(cat: Catalog, daily_json: Path, exclude: set[str]) -> None:
             cat.add(None, {**src, "contesto": ev["subject"]}, note_key=f"outlook/{ev['subject']}")
 
 
+def read_instagram(cat: Catalog, jsonl: Path) -> None:
+    for line in jsonl.open(encoding="utf-8"):
+        r = json.loads(line)
+        for u in r.get("urls", []):
+            cat.add(u, {"fonte": "instagram-dm", "data": r["letto_il"][:10], "contesto": r["name"], "ref": r.get("thread_url")})
+
+
 def write_catalog(cat: Catalog, out: Path) -> Counter:
     domains: Counter = Counter()
     with out.open("w", encoding="utf-8") as fh:
@@ -150,6 +157,7 @@ def main() -> None:
     p.add_argument("--telegram", type=Path, required=True, help="messages.jsonl from tg_read.py")
     p.add_argument("--tasks", type=Path, required=True, help="tasks.ndjson from gws")
     p.add_argument("--outlook", type=Path, required=True, help="JSON from outlook_daily.ps1")
+    p.add_argument("--instagram", type=Path, help="dm-links.jsonl from ig_lot.py")
     p.add_argument("--exclude-event", action="append", default=[], help="Outlook series to skip (e.g. work meetings)")
     p.add_argument("--out", type=Path, required=True, help="catalog JSONL")
     p.add_argument("--report-dir", type=Path, required=True)
@@ -160,6 +168,8 @@ def main() -> None:
     read_telegram(cat, a.telegram, a.report_dir / f"{a.prefix}-telegram-documenti.csv")
     read_tasks(cat, a.tasks, a.report_dir / f"{a.prefix}-tasks-senza-link.csv")
     read_outlook(cat, a.outlook, set(a.exclude_event))
+    if a.instagram:
+        read_instagram(cat, a.instagram)
     a.out.parent.mkdir(parents=True, exist_ok=True)
     domains = write_catalog(cat, a.out)
     flags = Counter(f for it in cat.items.values() for f in it.flags)
