@@ -21,7 +21,7 @@ Cartella di lavoro per organizzare la posta e leggere calendari e chat dell'uten
 - Outlook: mai richieste all'IT. Lo script spegne l'interruttore "Nuovo Outlook" (`UseNewOutlook`) solo durante la lettura e lo ripristina; lancialo con un timeout (Claude Code gira come amministratore e un Outlook bloccato non risponde).
 - I dati personali restano in questa cartella: non pubblicarli (artifact, servizi esterni) senza chiedere.
 - Eccezione filtri Gmail (autorizzata 20/11/2026): solo filtri che etichettano, archiviano o segnano come letto, creati con `tools/gmail/gmail_filters.py` da un piano approvato; mai inoltri.
-- Eccezione Instagram (approvata dall'utente): si possono premere i pulsanti dei DM non letti di account AI **solo** per farsi inviare i link, nel profilo Playwright persistente in cui l'utente ha fatto login da sé; massimo 15 DM per lotto, pause casuali di 30–90 s, un lotto al giorno, lista dei DM approvata dall'utente prima di ogni lotto. Mai scrivere messaggi.
+- Eccezione Instagram (approvata dall'utente): si possono premere i pulsanti dei DM non letti di account AI **solo** per farsi inviare i link, nel profilo Playwright persistente in cui l'utente ha fatto login da sé; massimo 15 DM per lotto, pause casuali di 30–90 s, un lotto al giorno, lista dei DM approvata dall'utente prima di ogni lotto. Gli account approvati entrano nell'allowlist (`data/instagram/allowlist.json`): i loro DM nuovi si elaborano in automatico, con gli stessi limiti. Mai scrivere messaggi.
 
 ## Struttura
 
