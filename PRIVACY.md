@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 19 November 2026_
+_Last updated: 20 November 2026_
 
 This policy covers **Claude Control**, a personal tool that its owner uses to organise their own Gmail inbox, read their own calendars and tasks, and build a private knowledge base. It is not offered to the public.
 
@@ -13,6 +13,7 @@ The application is used only by its owner, signing in with their own Google acco
 | Scope | Purpose |
 |---|---|
 | `gmail.modify` | Read message headers and content to group messages by sender and type, apply labels, archive, mark messages as read and create drafts when the owner asks. The application never sends, forwards or permanently deletes mail. |
+| `gmail.settings.basic` | Create filters that label, archive or mark as read future mail from senders the owner has approved. The application never creates forwarding rules. |
 | `calendar.readonly` | Read events to find recurring reminders. The application never creates or changes events. |
 | `tasks.readonly` | Read tasks to find recurring items and saved links. The application never creates or changes tasks. |
 | `openid`, `email`, `profile` | Identify the signed-in account. |
