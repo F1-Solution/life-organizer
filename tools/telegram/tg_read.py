@@ -78,6 +78,8 @@ async def to_record(msg, media_dir: Path, args: argparse.Namespace) -> dict:
     if msg.media and not isinstance(msg.media, MessageMediaWebPage):
         record["media"] = type(msg.media).__name__.removeprefix("MessageMedia").lower()
         size = getattr(msg.file, "size", None) or 0
+        # File metadata lets the owner review documents without downloading them.
+        record.update(file_name=getattr(msg.file, "name", None), mime_type=getattr(msg.file, "mime_type", None), size=size)
         if args.media and size <= args.max_mb * 1024 * 1024:
             media_dir.mkdir(parents=True, exist_ok=True)
             path = await msg.download_media(file=str(media_dir / f"{msg.id}_"))
