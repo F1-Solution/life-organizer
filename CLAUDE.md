@@ -28,4 +28,7 @@ Cartella di lavoro per organizzare la posta e leggere calendari e chat dell'uten
 - `inbox/whatsapp/` — zip esportati da WhatsApp, ognuno estratto nella propria sottocartella.
 - `data/telegram/<chat>/` — `messages.jsonl`, `media/`, `state.json` (lettura incrementale).
 - `output/` — report ed estrazioni, nome file con prefisso `AAAA-MM-GG`.
-- `tools/` — script; i segreti stanno fuori, in `%USERPROFILE%\.config\telegram-reader\`.
+- `tools/` — script; i segreti stanno fuori, in `%USERPROFILE%\.config\telegram-reader\` e `%USERPROFILE%\.config\instagram-reader\`.
+- `data/brain/catalog.jsonl` — catalogo deduplicato dei link (fase 1, `tools/brain/collect_links.py`).
+- `docs/` — documenti di progetto (`second-brain-design.md`).
+- Git: `origin` (`F1-Solution/life-organizer`) è **pubblico** e contiene solo codice e PRIVACY.md. I dati personali, `docs/` compresa, vanno nel repo **privato** `F1-Solution/life-organizer-data` (git-dir `.git-private`) con `bash tools/sync_private.sh`.
