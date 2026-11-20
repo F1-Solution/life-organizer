@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 ROOT = Path(__file__).resolve().parents[2]
 URL_RE = re.compile(r"https?://[^\s<>\"'`)\]]+", re.IGNORECASE)
 TRAILING = ".,;:!?*»”’"
-TRACKING = re.compile(r"^(utm_.*|igsh|igshid|si|is|fbclid|gclid|mibextid|ref_src|ref_url|rcm|trk|lipi|feature|s|t)$")
+TRACKING = re.compile(r"^(utm_.*|igsh|igshid|si|is|fbclid|gclid|mibextid|ref_src|ref_url|rcm|trk|lipi|feature|s|t|.*token.*|r|triedRedirect)$")
 SENSITIVE = re.compile(r"password|passw|pwd|\bpin\b|credenziali|utente\s*:|user(name)?\s*:|login\s*:", re.IGNORECASE)
 PORN = re.compile(r"porn|xvideos|xnxx|xhamster|redtube|youporn|spankbang|eporner|onlyfans|brazzers|chaturbate|xxx", re.IGNORECASE)
 WA_LINE = re.compile(r"^(\d{2}/\d{2}/\d{2}), (\d{2}:\d{2}) - ([^:]+): (.*)$")
@@ -40,7 +40,7 @@ def normalize(url: str) -> str:
     query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not TRACKING.match(k)]
     if host == "youtu.be":
         host, query, path = "youtube.com", [("v", path.strip("/"))], "/watch"
-    if host in ("instagram.com", "threads.net", "threads.com", "linkedin.com", "tiktok.com"):
+    if host in ("instagram.com", "threads.net", "threads.com", "linkedin.com", "tiktok.com", "github.com"):
         query = []  # Share links only add tracking to these hosts.
     return urlunsplit(("https", host, path, urlencode(query), ""))
 
