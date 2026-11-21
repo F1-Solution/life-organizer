@@ -6,7 +6,13 @@ import os
 from pathlib import Path
 
 HOST = "ftpwin.alessioekatya.it"
-BASE = "/second-brain"
+BASE = "/alessioekatya.it/second-brain"
+# The folder sits under the web root: this IIS rule refuses every file over HTTP so originals stay FTP-only.
+WEB_CONFIG = b"""<?xml version="1.0" encoding="UTF-8"?>
+<configuration><system.webServer><security><requestFiltering>
+<fileExtensions allowUnlisted="false" />
+</requestFiltering></security><directoryBrowse enabled="false" /></system.webServer></configuration>
+"""
 
 
 def _env(name: str) -> str:
@@ -21,12 +27,38 @@ def _env(name: str) -> str:
     return value
 
 
+class _IisFtpTls(ftplib.FTP_TLS):
+    """IIS resets TLS data connections instead of sending close_notify, so skip the unwrap that ftplib does."""
+
+    def storbinary(self, cmd, fp, blocksize=1 << 20, callback=None, rest=None):  # noqa: ANN001, ANN201
+        self.voidcmd("TYPE I")
+        with self.transfercmd(cmd, rest) as conn:
+            while buf := fp.read(blocksize):
+                conn.sendall(buf)
+        return self.voidresp()
+
+    def retrlines(self, cmd, callback=None):  # noqa: ANN001, ANN201
+        self.sendcmd("TYPE A")
+        with self.transfercmd(cmd) as conn, conn.makefile("r", encoding=self.encoding) as fp:
+            for line in fp:
+                (callback or print)(line.rstrip("\r\n"))
+        return self.voidresp()
+
+
 class FtpStore:
     def __init__(self) -> None:
-        self.ftp = ftplib.FTP_TLS(HOST, timeout=120)
+        self.ftp = _IisFtpTls(HOST, timeout=120)
         self.ftp.auth()
         self.ftp.login(_env("FTP_AK_USERNAME"), _env("FTP_AK_PASSWORD"))
         self.ftp.prot_p()
+        self._protect()
+
+    def _protect(self) -> None:
+        import io
+
+        self._ensure_dir(BASE)
+        if self.size(f"{BASE}/web.config") != len(WEB_CONFIG):
+            self.ftp.storbinary(f"STOR {BASE}/web.config", io.BytesIO(WEB_CONFIG))
 
     def _ensure_dir(self, path: str) -> None:
         current = ""

@@ -31,4 +31,6 @@ Cartella di lavoro per organizzare la posta e leggere calendari e chat dell'uten
 - `tools/` — script; i segreti stanno fuori, in `%USERPROFILE%\.config\telegram-reader\` e `%USERPROFILE%\.config\instagram-reader\`.
 - `data/brain/catalog.jsonl` — catalogo deduplicato dei link (fase 1, `tools/brain/collect_links.py`).
 - `docs/` — documenti di progetto (`second-brain-design.md`).
+- `vault/` — Vault Obsidian: `Risorse/` (Schede) e `_estratti/<id>/` (testo, OCR, trascrizioni, miniatura), prodotti da `tools/brain/extract.py`.
+- FTP: originali in `/alessioekatya.it/second-brain/<fonte>/<anno>/` via `tools/brain/ftp_store.py`. La cartella è sotto la radice del sito: non togliere il `web.config` che blocca l'accesso HTTP, e non caricare mai fuori da `second-brain/`.
 - Git: `origin` (`F1-Solution/life-organizer`) è **pubblico** e contiene solo codice e PRIVACY.md. I dati personali, `docs/` compresa, vanno nel repo **privato** `F1-Solution/life-organizer-data` (git-dir `.git-private`) con `bash tools/sync_private.sh`.
