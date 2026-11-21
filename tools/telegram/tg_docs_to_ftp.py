@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 
 from telethon import TelegramClient
@@ -48,6 +49,20 @@ async def download_resumable(client: TelegramClient, msg_id: int, local: Path, a
     raise RuntimeError(f"{msg_id}: download failed after {attempts} attempts")
 
 
+def upload_with_retry(local: Path, year: str, attempts: int = 5) -> str:
+    """Upload on a fresh connection each try, resuming from what the server already holds."""
+    for attempt in range(attempts):
+        store = FtpStore()
+        try:
+            return store.upload(local, "telegram", year)
+        except (ConnectionError, OSError, EOFError) as exc:
+            print(f"{local.name}: upload interrupted ({exc}), retry {attempt + 1}", flush=True)
+            time.sleep(30 * (attempt + 1))
+        finally:
+            store.close()
+    raise RuntimeError(f"{local.name}: upload failed after {attempts} attempts")
+
+
 async def run(args: argparse.Namespace) -> None:
     decisions = json.loads(args.decisions.read_text(encoding="utf-8"))
     done_file = DATA_DIR / "ftp-uploaded.json"
@@ -68,11 +83,7 @@ async def run(args: argparse.Namespace) -> None:
                 continue
             local = args.tmp / (msg.file.name or f"{doc['id']}")
             await download_resumable(client, doc["id"], local)
-            store = FtpStore()  # A fresh connection per file survives the server's idle timeout during long downloads.
-            try:
-                remote = store.upload(local, "telegram", str(msg.date.year))
-            finally:
-                store.close()
+            remote = upload_with_retry(local, str(msg.date.year))
             local.unlink()
             done[str(doc["id"])] = remote
             done_file.write_text(json.dumps(done, ensure_ascii=False, indent=1), encoding="utf-8")

@@ -107,8 +107,11 @@ class FtpStore:
         if self.size(remote) == local.stat().st_size:
             return remote
         self._ensure_dir(folder)
+        partial = self.size(remote) or 0
+        offset = partial if partial < local.stat().st_size else 0  # Resume an interrupted upload with REST.
         with local.open("rb") as fh:
-            self.ftp.storbinary(f"STOR {remote}", fh, blocksize=1024 * 1024)
+            fh.seek(offset)
+            self.ftp.storbinary(f"STOR {remote}", fh, blocksize=1024 * 1024, rest=offset or None)
         if self.size(remote) != local.stat().st_size:
             raise RuntimeError(f"Size mismatch after upload: {remote}")
         return remote
