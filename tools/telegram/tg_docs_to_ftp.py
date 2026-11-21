@@ -19,6 +19,32 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "brain"))
 from ftp_store import FtpStore  # noqa: E402
 
 
+CHUNK = 512 * 1024
+
+
+async def download_resumable(client: TelegramClient, msg_id: int, local: Path, attempts: int = 20) -> None:
+    """Append to a partial file from its current size, retrying dropped connections."""
+    for attempt in range(attempts):
+        try:
+            msg = await client.get_messages("me", ids=msg_id)
+            done = local.stat().st_size if local.exists() else 0
+            if done >= msg.file.size:
+                return
+            done -= done % CHUNK  # Telegram only serves offsets aligned to the request size.
+            with local.open("r+b" if local.exists() else "wb") as fh:
+                fh.truncate(done)
+                fh.seek(done)
+                async for chunk in client.iter_download(msg.media, offset=done, request_size=CHUNK):
+                    fh.write(chunk)
+            return
+        except (ConnectionError, OSError) as exc:
+            print(f"{msg_id}: connection lost ({exc}), retry {attempt + 1}", flush=True)
+            await asyncio.sleep(min(60 * (attempt + 1), 600))
+            if not client.is_connected():
+                await client.connect()
+    raise RuntimeError(f"{msg_id}: download failed after {attempts} attempts")
+
+
 async def run(args: argparse.Namespace) -> None:
     decisions = json.loads(args.decisions.read_text(encoding="utf-8"))
     done_file = DATA_DIR / "ftp-uploaded.json"
@@ -37,7 +63,8 @@ async def run(args: argparse.Namespace) -> None:
             if not msg or not msg.file:
                 print(f"{doc['id']}: message or file missing", flush=True)
                 continue
-            local = Path(await msg.download_media(file=str(args.tmp / (msg.file.name or f"{doc['id']}"))))
+            local = args.tmp / (msg.file.name or f"{doc['id']}")
+            await download_resumable(client, doc["id"], local)
             store = FtpStore()  # A fresh connection per file survives the server's idle timeout during long downloads.
             try:
                 remote = store.upload(local, "telegram", str(msg.date.year))
