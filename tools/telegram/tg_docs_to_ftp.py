@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from telethon import TelegramClient
+from telethon.errors import FileReferenceExpiredError
 
 from tg_common import DATA_DIR, load_config
 
@@ -37,6 +38,8 @@ async def download_resumable(client: TelegramClient, msg_id: int, local: Path, a
                 async for chunk in client.iter_download(msg.media, offset=done, request_size=CHUNK):
                     fh.write(chunk)
             return
+        except FileReferenceExpiredError:
+            print(f"{msg_id}: file reference expired, refetching", flush=True)  # The next attempt reloads the message.
         except (ConnectionError, OSError) as exc:
             print(f"{msg_id}: connection lost ({exc}), retry {attempt + 1}", flush=True)
             await asyncio.sleep(min(60 * (attempt + 1), 600))
