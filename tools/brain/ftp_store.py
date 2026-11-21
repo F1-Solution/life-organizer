@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import ftplib
+import io
 import os
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 HOST = "ftpwin.alessioekatya.it"
@@ -25,6 +28,17 @@ def _env(name: str) -> str:
     if not value:
         raise SystemExit(f"Missing environment variable {name}.")
     return value
+
+
+PROBE = "probe-accesso-web.txt"
+PROBE_URL = f"https://www.alessioekatya.it/second-brain/{PROBE}"
+
+
+def _http_status(url: str) -> int:
+    try:
+        return urllib.request.urlopen(urllib.request.Request(url, method="HEAD"), timeout=30).status
+    except urllib.error.HTTPError as exc:
+        return exc.code
 
 
 class _IisFtpTls(ftplib.FTP_TLS):
@@ -54,11 +68,22 @@ class FtpStore:
         self._protect()
 
     def _protect(self) -> None:
-        import io
 
         self._ensure_dir(BASE)
-        if self.size(f"{BASE}/web.config") != len(WEB_CONFIG):
+        current = io.BytesIO()
+        try:
+            self.ftp.retrbinary(f"RETR {BASE}/web.config", current.write)
+        except ftplib.error_perm:
+            pass
+        if current.getvalue() != WEB_CONFIG:
             self.ftp.storbinary(f"STOR {BASE}/web.config", io.BytesIO(WEB_CONFIG))
+        if self.size(f"{BASE}/{PROBE}") is None:
+            self.ftp.storbinary(f"STOR {BASE}/{PROBE}", io.BytesIO(b"probe"))
+        # Fail closed: refuse to upload unless the web server demonstrably hides the folder.
+        status = _http_status(PROBE_URL)
+        if status not in (401, 403, 404):
+            self.close()
+            raise SystemExit(f"{PROBE_URL} answered {status}: the folder is reachable from the web, upload refused.")
 
     def _ensure_dir(self, path: str) -> None:
         current = ""

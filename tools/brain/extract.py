@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10,<3.13"
-# dependencies = ["yt-dlp", "gallery-dl", "trafilatura>=1.12", "faster-whisper>=1.0", "rapidocr-onnxruntime>=1.3",
+# dependencies = ["yt-dlp[default]", "curl_cffi", "gallery-dl", "trafilatura>=1.12", "faster-whisper>=1.0", "rapidocr-onnxruntime>=1.3",
 #                 "pypdf>=4", "pillow>=10", "playwright>=1.48", "requests>=2"]
 # ///
 """Phase 3, step 1: download each catalog item, extract its text (article, README, transcript, OCR), upload originals to FTP."""
@@ -59,7 +59,16 @@ def transcribe(path: Path) -> str:
         from faster_whisper import WhisperModel
 
         _whisper = WhisperModel("small", device="cpu", compute_type="int8")
-    segments, _ = _whisper.transcribe(str(path), vad_filter=True)
+    import numpy as np
+
+    # Decoding with ffmpeg avoids the PyAV build that faster-whisper pins, which rejects its own arguments.
+    run = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(path), "-vn", "-f", "s16le", "-ac", "1", "-ar", "16000", "-"],
+                         capture_output=True)
+    pcm = run.stdout
+    if run.returncode or not pcm:  # Silent clips have no audio stream to decode.
+        return ""
+    audio = np.frombuffer(pcm, np.int16).astype(np.float32) / 32768.0
+    segments, _ = _whisper.transcribe(audio, vad_filter=True)
     return " ".join(s.text.strip() for s in segments)
 
 
@@ -130,9 +139,15 @@ def handle_instagram(url: str, work: Path, meta: dict) -> list[str]:
 def handle_youtube(url: str, work: Path, meta: dict) -> list[str]:
     base = ["yt-dlp", "--js-runtimes", "node", "--no-playlist", "--write-info-json", "--write-auto-subs", "--write-subs", "--sub-langs", "it,en,en-orig",
             "--sub-format", "vtt", "-o", str(work / "%(id)s.%(ext)s")]
-    info = json.loads(subprocess.run(["yt-dlp", "--js-runtimes", "node", "-j", "--no-playlist", url], capture_output=True, text=True, check=True).stdout)
-    fmt = ["-f", "bestaudio[ext=m4a]/bestaudio"] if (info.get("duration") or 0) > 3600 else ["-f", "best[height<=720][ext=mp4]/best[height<=720]"]
-    subprocess.run(base + fmt + [url], capture_output=True, text=True, timeout=3600, check=True)
+    probe = subprocess.run(["yt-dlp", "--js-runtimes", "node", "-j", "--no-playlist", url], capture_output=True, text=True)
+    if probe.returncode:
+        raise RuntimeError(probe.stderr.strip()[-400:])
+    info = json.loads(probe.stdout)
+    fmt = (["-f", "bestaudio[ext=m4a]/bestaudio"] if (info.get("duration") or 0) > 3600
+           else ["-f", "bv*+ba/b", "-S", "res:720,ext:mp4:m4a", "--merge-output-format", "mp4"])  # res uses the short side, so Shorts work.
+    run = subprocess.run(base + fmt + ["--ignore-errors", url], capture_output=True, text=True, timeout=3600)
+    if not any(f.suffix.lower() in VIDEO for f in work.iterdir()):  # Subtitle failures alone must not sink the item.
+        raise RuntimeError(run.stderr.strip()[-400:])
     meta.update(title=info.get("title"), author=info.get("channel"), published=(info.get("upload_date") or "")[:8],
                 duration_s=info.get("duration"), description=info.get("description"))
     parts = [f"## Descrizione\n\n{info.get('description') or ''}"]
@@ -158,7 +173,36 @@ def handle_github(url: str, work: Path, meta: dict) -> list[str]:
     return [f"## Descrizione\n\n{info.get('description') or ''}", f"## README\n\n{readme[:60000]}"]
 
 
+def render(url: str, work: Path, meta: dict) -> list[str]:
+    """Open the page in the dedicated Edge profile (logged-in sessions) and keep its visible text."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        ctx = pw.chromium.launch_persistent_context(str(IG_DIR / "profile"), channel="msedge", headless=True)
+        page = ctx.new_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(6000)
+        text = page.evaluate("() => (document.querySelector('article') || document.querySelector('main') || document.body).innerText")
+        meta.update(final_url=page.url, title=meta.get("title") or page.title())
+        (work / "pagina.html").write_text(page.content(), encoding="utf-8")
+        ctx.close()
+    meta["resa_browser"] = True
+    if len(text) < 300:
+        meta["avviso"] = "testo breve anche nel browser: serve login o contenuto rimosso"
+    else:
+        meta.pop("avviso", None)
+    return [f"## Testo (pagina resa nel browser)\n\n{text[:60000]}"]
+
+
 def handle_web(url: str, work: Path, meta: dict) -> list[str]:
+    try:
+        parts = fetch_web(url, work, meta)
+    except requests.RequestException:
+        return render(url, work, meta)
+    return render(meta.get("final_url") or url, work, meta) if meta.get("avviso") else parts
+
+
+def fetch_web(url: str, work: Path, meta: dict) -> list[str]:
     import trafilatura
 
     resp = requests.get(url, headers=UA, timeout=60)
