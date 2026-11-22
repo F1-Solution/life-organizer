@@ -244,11 +244,7 @@ def dispatch(item: dict, work: Path, meta: dict) -> list[str]:
         if src is None:  # A note saved without link or file: its own text is the content.
             meta["kind"] = "nota"
             notes = [s if isinstance(s, str) else s.get("contesto", "") for s in item["contesti"]]
-            return ["## Appunto
-
-" + "
-
-".join(n for n in notes if n)]
+            return ["## Appunto\n\n" + "\n\n".join(n for n in notes if n)]
         meta["kind"] = "file"
         return handle_file(ROOT / src["path"], work, meta)
     url = item["url"]
