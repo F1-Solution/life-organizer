@@ -8,10 +8,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 import openpyxl
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "gmail"))
 from gmail_scan import load_credentials  # noqa: E402
@@ -32,6 +34,22 @@ def task_lists(ndjson: Path) -> dict[str, tuple[str, str]]:
     return out
 
 
+def delete(svc, list_id: str, tid: str, attempts: int = 8) -> None:  # noqa: ANN001
+    """Delete one task, waiting out the per-minute quota and treating 404 as already gone."""
+    for attempt in range(attempts):
+        try:
+            svc.tasks().delete(tasklist=list_id, task=tid).execute()
+            return
+        except HttpError as exc:
+            if exc.resp.status == 404:
+                return
+            over_quota = exc.resp.status == 429 or (exc.resp.status == 403 and b"uota" in exc.content)
+            if not over_quota:
+                raise
+            time.sleep(min(15 * 2**attempt, 300))
+    raise RuntimeError(f"{tid}: still over quota after {attempts} attempts")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--xlsx", type=Path, required=True)
@@ -47,12 +65,14 @@ def main() -> None:
     if a.dry_run:
         return
     svc = build("tasks", "v1", credentials=load_credentials(), cache_discovery=False)
+    done = {json.loads(line)["id"] for line in a.log.open(encoding="utf-8")} if a.log.exists() else set()
+    todo = sorted(ids - done)  # A rerun skips what the log already records.
     with a.log.open("a", encoding="utf-8") as log:
-        for i, tid in enumerate(sorted(ids), 1):
+        for i, tid in enumerate(todo, 1):
             list_id, title = lists[tid]
-            svc.tasks().delete(tasklist=list_id, task=tid).execute()
+            delete(svc, list_id, tid)
             log.write(json.dumps({"id": tid, "list": list_id, "title": title}, ensure_ascii=False) + "\n")
-            print(f"\r{i}/{len(ids)}", end="", file=sys.stderr)
+            print(f"\r{i}/{len(todo)}", end="", file=sys.stderr)
     print("\ndone")
 
 
