@@ -21,7 +21,9 @@ $outlook = $null
 try {
     $outlook = New-Object -ComObject Outlook.Application
     # 9 = olFolderCalendar; IncludeRecurrences stays off so each series appears once as its master.
-    $items = $outlook.GetNamespace('MAPI').GetDefaultFolder(9).Items
+    $ns = $outlook.GetNamespace('MAPI')
+    $me = $ns.CurrentUser.Name
+    $items = $ns.GetDefaultFolder(9).Items
     $series = foreach ($item in $items) {
         if (-not $item.IsRecurring) { continue }
         $pattern = $item.GetRecurrencePattern()
@@ -35,6 +37,10 @@ try {
             interval    = $pattern.Interval
             categories  = $item.Categories
             body        = ([string]$item.Body).Trim()
+            entry_id    = $item.EntryID
+            organizer   = $item.Organizer
+            mine        = ($item.Organizer -eq $me)
+            recipients  = $item.Recipients.Count
         }
     }
 }
