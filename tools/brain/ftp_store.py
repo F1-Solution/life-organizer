@@ -61,6 +61,9 @@ class _IisFtpTls(ftplib.FTP_TLS):
 
 class FtpStore:
     def __init__(self) -> None:
+        self._connect()
+
+    def _connect(self) -> None:
         self.ftp = _IisFtpTls(HOST, timeout=120)
         self.ftp.auth()
         self.ftp.login(_env("FTP_AK_USERNAME"), _env("FTP_AK_PASSWORD"))
@@ -102,6 +105,15 @@ class FtpStore:
             return None
 
     def upload(self, local: Path, fonte: str, anno: str, name: str | None = None) -> str:
+        try:
+            return self._upload(local, fonte, anno, name)
+        except (OSError, EOFError, ftplib.error_temp):
+            # The server drops idle control connections during long downloads: reconnect once and resume.
+            self.close()
+            self._connect()
+            return self._upload(local, fonte, anno, name)
+
+    def _upload(self, local: Path, fonte: str, anno: str, name: str | None = None) -> str:
         folder = f"{BASE}/{fonte}/{anno}"
         remote = f"{folder}/{name or local.name}"
         if self.size(remote) == local.stat().st_size:
@@ -119,5 +131,5 @@ class FtpStore:
     def close(self) -> None:
         try:
             self.ftp.quit()
-        except ftplib.all_errors:
+        except (*ftplib.all_errors, ValueError):
             self.ftp.close()

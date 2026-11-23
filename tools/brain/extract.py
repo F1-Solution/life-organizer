@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -136,10 +137,30 @@ def handle_instagram(url: str, work: Path, meta: dict) -> list[str]:
     return ([f"## Didascalia\n\n{meta['caption']}"] if meta.get("caption") else []) + media_text(files, meta)
 
 
+YT_LIST = re.compile(r"/(playlist|c/|channel/|user/|@)")
+
+
+def handle_youtube_list(url: str, work: Path, meta: dict) -> list[str]:
+    """Channels and playlists: keep the description and the list of videos, without downloading them."""
+    run = subprocess.run(["yt-dlp", "--js-runtimes", "node", "--flat-playlist", "-J", "--playlist-end", "200", url],
+                         capture_output=True, text=True, encoding="utf-8", timeout=600)
+    if run.returncode:
+        raise RuntimeError(run.stderr.strip()[-400:])
+    info = json.loads(run.stdout)
+    entries = [e for e in info.get("entries") or [] if e]
+    (work / "elenco.json").write_text(json.dumps(entries, ensure_ascii=False, indent=1), encoding="utf-8")
+    meta.update(title=info.get("title"), author=info.get("channel") or info.get("uploader"), description=info.get("description"),
+                video_count=info.get("playlist_count") or len(entries))
+    lines = [f"- {e.get('title')} ({e.get('url') or e.get('id')})" for e in entries]
+    return [f"## Descrizione\n\n{info.get('description') or ''}", "## Video\n\n" + "\n".join(lines)]
+
+
 def handle_youtube(url: str, work: Path, meta: dict) -> list[str]:
+    if YT_LIST.search(urlsplit(url).path + ("/playlist" if "list=" in url and "v=" not in url else "")):
+        return handle_youtube_list(url, work, meta)
     base = ["yt-dlp", "--js-runtimes", "node", "--no-playlist", "--write-info-json", "--write-auto-subs", "--write-subs", "--sub-langs", "it,en,en-orig",
             "--sub-format", "vtt", "-o", str(work / "%(id)s.%(ext)s")]
-    probe = subprocess.run(["yt-dlp", "--js-runtimes", "node", "-j", "--no-playlist", url], capture_output=True, text=True)
+    probe = subprocess.run(["yt-dlp", "--js-runtimes", "node", "-j", "--no-playlist", url], capture_output=True, text=True, encoding="utf-8")
     if probe.returncode:
         raise RuntimeError(probe.stderr.strip()[-400:])
     info = json.loads(probe.stdout)
@@ -164,7 +185,11 @@ def handle_youtube(url: str, work: Path, meta: dict) -> list[str]:
 
 def handle_github(url: str, work: Path, meta: dict) -> list[str]:
     owner, repo = urlsplit(url).path.strip("/").split("/")[:2]
-    info = json.loads(subprocess.run(["gh", "api", f"repos/{owner}/{repo}"], capture_output=True, text=True, check=True).stdout)
+    # Explicit UTF-8: with the Windows code page a non-ASCII byte leaves stdout as None.
+    got = subprocess.run(["gh", "api", f"repos/{owner}/{repo}"], capture_output=True, text=True, encoding="utf-8")
+    if got.returncode:
+        raise RuntimeError(f"repo {owner}/{repo} non raggiungibile: {(got.stderr or got.stdout).strip()[-200:]}")
+    info = json.loads(got.stdout)
     readme = subprocess.run(["gh", "api", f"repos/{owner}/{repo}/readme", "-H", "Accept: application/vnd.github.raw"],
                             capture_output=True, text=True, encoding="utf-8").stdout
     meta.update(title=f"{owner}/{repo}", author=owner, description=info.get("description"), stars=info.get("stargazers_count"),
