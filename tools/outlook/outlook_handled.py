@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
 # ///
-"""List the Outlook daily series that can be deleted: created by the user, without attendees, subject is a link and every link has an analysed Scheda."""
+"""List the Outlook daily series that can be deleted: created by the user, without attendees, with at least one link in subject or body, and every link has an analysed Scheda."""
 from __future__ import annotations
 
 import argparse
@@ -36,8 +36,6 @@ def eligible(ev: dict, done: set[str]) -> tuple[bool, str]:
         return False, "già cancellata"
     if not ev.get("mine") or ev.get("recipients", 99) > 1:
         return False, "non tua o con partecipanti"
-    if not re.fullmatch(r"\s*https?://\S+\s*", ev["subject"] or ""):
-        return False, "l'oggetto non è un link"
     return True, ""
 
 
@@ -55,7 +53,9 @@ def main() -> None:
     for ev in json.loads(a.export.read_text(encoding="utf-8-sig")):
         good, why = eligible(ev, done)
         urls = [normalize(u) for u in URL_RE.findall(f"{ev['subject']}\n{ev.get('body') or ''}")]
-        if good and not all(u in ok_urls for u in urls):
+        if good and not urls:
+            good, why = False, "nessun link"
+        elif good and not all(u in ok_urls for u in urls):
             good, why = False, "link senza Scheda analizzata"
         if good:
             plan.append({"entry_id": ev["entry_id"], "subject": ev["subject"], "urls": urls, "stato": "analizzata"})
