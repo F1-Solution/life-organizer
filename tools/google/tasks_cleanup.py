@@ -41,18 +41,38 @@ def handled_tasks(catalog: Path, states: dict[str, str]) -> set[str]:
     return {ref for ref, ids in items.items() if all(states.get(i) == "analizzata" for i in ids)}
 
 
+def repeated_tasks(export: Path, logs: list[Path]) -> dict[str, str]:
+    """New instances of recurring tasks already handled: same title as a deleted task or idea, or a dated copy of an undated to-do."""
+    seen = set()
+    for log in logs:
+        if log.exists():
+            seen |= {e["title"] for e in map(json.loads, log.open(encoding="utf-8")) if e.get("azione", "idea") == "idea"}
+    out = {}
+    for line in export.open(encoding="utf-8"):
+        block = json.loads(line)
+        undated = {t.get("title") for t in block["items"] if not t.get("due")}
+        for t in block["items"]:
+            # Undated tasks are the copies kept in "Da fare": never match them.
+            if t.get("due") and (t.get("title") in seen or t.get("title") in undated):
+                out[t["id"]] = "ripetuto"
+    return out
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--catalog", type=Path, default=ROOT / "data" / "brain" / "catalog.jsonl")
     p.add_argument("--vault", type=Path, default=ROOT / "vault")
     p.add_argument("--tasks", type=Path, default=ROOT / "data" / "google" / "tasks.ndjson")
     p.add_argument("--log", type=Path, default=ROOT / "data" / "google" / "tasks-cancellati.jsonl")
+    p.add_argument("--moved", type=Path, default=ROOT / "data" / "google" / "tasks-spostati.jsonl")
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args()
     lists = task_lists(a.tasks)
     done = {json.loads(line)["id"] for line in a.log.open(encoding="utf-8")} if a.log.exists() else set()
-    todo = sorted(t for t in handled_tasks(a.catalog, scheda_states(a.vault)) - done if t in lists)
-    print(f"{len(todo)} tasks handled in the second brain")
+    reason = {t: "gestito" for t in handled_tasks(a.catalog, scheda_states(a.vault))}
+    reason |= repeated_tasks(a.tasks, [a.log, a.moved])
+    todo = sorted(t for t in reason.keys() - done if t in lists)
+    print(f"{len(todo)} tasks handled in the second brain or repeating a handled one")
     if a.dry_run:
         for tid in todo:
             print(f"  {lists[tid][1][:80]}")
@@ -62,7 +82,7 @@ def main() -> None:
         for i, tid in enumerate(todo, 1):
             list_id, title = lists[tid]
             delete(svc, list_id, tid)
-            log.write(json.dumps({"id": tid, "list": list_id, "title": title, "motivo": "gestito"}, ensure_ascii=False) + "\n")
+            log.write(json.dumps({"id": tid, "list": list_id, "title": title, "motivo": reason[tid]}, ensure_ascii=False) + "\n")
             print(f"\r{i}/{len(todo)}", end="", file=sys.stderr)
     print("\ndone")
 
