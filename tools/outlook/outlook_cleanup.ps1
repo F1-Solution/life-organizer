@@ -14,7 +14,8 @@ $ErrorActionPreference = 'Stop'
 
 $planned = @{}
 foreach ($p in (Get-Content -Raw -Path $Plan | ConvertFrom-Json)) {
-    if ($p.stato -ne 'analizzata') { continue }
+    # analizzata = every link has an analysed Scheda; trascritta = the to-do is already in Google Tasks "Da fare" or in Idee.md.
+    if ($p.stato -notin @('analizzata', 'trascritta')) { continue }
     $planned[$p.entry_id] = $p
 }
 if ($planned.Count -eq 0) { Write-Host 'Nothing to delete.'; return }

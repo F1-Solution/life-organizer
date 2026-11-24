@@ -46,12 +46,18 @@ def main() -> None:
     p.add_argument("--vault", type=Path, default=ROOT / "vault")
     p.add_argument("--log", type=Path, default=ROOT / "data" / "outlook" / "eventi-cancellati.jsonl")
     p.add_argument("--out", type=Path, required=True, help="plan JSON for outlook_cleanup.ps1")
+    p.add_argument("--transcribed", type=Path, default=ROOT / "data" / "outlook" / "todo-trascritti.jsonl",
+                   help="series whose to-do was copied into Google Tasks or Idee.md")
     a = p.parse_args()
     ok_urls = analysed_urls(a.catalog, a.vault)
     done = {json.loads(line)["entry_id"] for line in a.log.open(encoding="utf-8")} if a.log.exists() else set()
+    copied = {json.loads(line)["entry_id"] for line in a.transcribed.open(encoding="utf-8")} if a.transcribed.exists() else set()
     plan, skipped = [], {}
     for ev in json.loads(a.export.read_text(encoding="utf-8-sig")):
         good, why = eligible(ev, done)
+        if good and ev["entry_id"] in copied:
+            plan.append({"entry_id": ev["entry_id"], "subject": ev["subject"], "urls": [], "stato": "trascritta"})
+            continue
         urls = [normalize(u) for u in URL_RE.findall(f"{ev['subject']}\n{ev.get('body') or ''}")]
         if good and not urls:
             good, why = False, "nessun link"
