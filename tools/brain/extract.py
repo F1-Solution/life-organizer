@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -37,6 +38,11 @@ LOGIN_WALL = {"linkedin.com", "threads.com", "threads.net", "x.com", "twitter.co
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131 Safari/537.36"}
 _whisper = None
 _ocr = None
+IG_PAUSE = (60, 150)  # Seconds between Instagram downloads: faster bursts make Instagram drop the session.
+
+
+class SessionLost(RuntimeError):
+    """Instagram rejected the session: stop the batch instead of failing every remaining item."""
 
 
 def export_cookies() -> None:
@@ -125,8 +131,10 @@ def media_text(files: list[Path], meta: dict) -> list[str]:
 
 
 def handle_instagram(url: str, work: Path, meta: dict) -> list[str]:
-    subprocess.run(["gallery-dl", "--cookies", str(COOKIES), "--write-metadata", "-D", str(work), url],
-                   capture_output=True, text=True, timeout=600)
+    run = subprocess.run(["gallery-dl", "--cookies", str(COOKIES), "--write-metadata", "-D", str(work), url],
+                         capture_output=True, text=True, timeout=600)
+    if re.search(r"401 Unauthorized|checkpoint_required|login required", run.stderr, re.I):
+        raise SessionLost(run.stderr.strip().splitlines()[-1])
     info = sorted(work.glob("*.json"))
     if info:
         d = json.loads(info[0].read_text(encoding="utf-8"))
@@ -321,6 +329,8 @@ def process(item: dict, store: FtpStore | None) -> dict:
                 thumbnail(media[0], dest / "miniatura.jpg")
             upload_originals(work, item, meta, store)
             meta["stato"] = "estratta"
+        except SessionLost:
+            raise
         except Exception as exc:  # One broken link must not stop the batch.
             meta.update(stato="errore", errore=f"{type(exc).__name__}: {exc}"[:500])
             (dest / "errore.txt").write_text(traceback.format_exc(), encoding="utf-8")
@@ -353,15 +363,23 @@ def main() -> None:
     if any(c["url"] and "instagram.com" in c["url"] for c in items.values()):
         export_cookies()
     store = None if a.no_ftp else FtpStore()
+    ig_seen = False
     try:
         for i, cid in enumerate(wanted, 1):
             done = OUT / cid / "meta.json"
             if not a.redo and done.exists() and json.loads(done.read_text(encoding="utf-8")).get("stato") == "estratta":
                 continue
+            if "instagram.com" in (items[cid]["url"] or ""):
+                if ig_seen:
+                    time.sleep(random.uniform(*IG_PAUSE))
+                ig_seen = True
             if store:
                 store.close()
                 store = reconnect()  # Fresh connection per item: downloads and transcription outlast the FTP idle timeout.
-            meta = process(items[cid], store)
+            try:
+                meta = process(items[cid], store)
+            except SessionLost as exc:
+                raise SystemExit(f"[{i}/{len(wanted)}] {cid}: Instagram ha chiuso la sessione ({exc}); rifare il login e rilanciare.")
             print(f"[{i}/{len(wanted)}] {cid} {meta.get('kind')} {meta['stato']} {meta.get('errore', '')[:120]}", flush=True)
     finally:
         if store:
