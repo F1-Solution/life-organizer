@@ -131,5 +131,5 @@ class FtpStore:
     def close(self) -> None:
         try:
             self.ftp.quit()
-        except (*ftplib.all_errors, ValueError):
+        except (*ftplib.all_errors, ValueError, AttributeError):  # AttributeError: socket already dropped.
             self.ftp.close()

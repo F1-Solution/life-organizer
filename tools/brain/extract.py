@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
 from datetime import date
 from pathlib import Path
@@ -327,6 +328,19 @@ def process(item: dict, store: FtpStore | None) -> dict:
     return meta
 
 
+def reconnect(attempts: int = 5) -> FtpStore:
+    """Open a new FTP connection, waiting out short network drops (e.g. after sleep)."""
+    for n in range(attempts):
+        try:
+            return FtpStore()
+        except (OSError, EOFError) as exc:
+            if n == attempts - 1:
+                raise
+            print(f"  FTP non raggiungibile ({exc}), riprovo tra 60 s", flush=True)
+            time.sleep(60)
+    raise AssertionError("unreachable")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--catalog", type=Path, default=ROOT / "data" / "brain" / "catalog.jsonl")
@@ -346,7 +360,7 @@ def main() -> None:
                 continue
             if store:
                 store.close()
-                store = FtpStore()  # Fresh connection per item: downloads and transcription outlast the FTP idle timeout.
+                store = reconnect()  # Fresh connection per item: downloads and transcription outlast the FTP idle timeout.
             meta = process(items[cid], store)
             print(f"[{i}/{len(wanted)}] {cid} {meta.get('kind')} {meta['stato']} {meta.get('errore', '')[:120]}", flush=True)
     finally:
