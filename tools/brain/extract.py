@@ -253,9 +253,24 @@ def fetch_web(url: str, work: Path, meta: dict) -> list[str]:
     return [f"## Testo\n\n{text}"]
 
 
+def sniff_suffix(path: Path) -> str:
+    """Guess the extension from the first bytes: WhatsApp saves documents and voice notes without one."""
+    head = path.read_bytes()[:12]
+    if head.startswith(b"%PDF"):
+        return ".pdf"
+    if head[4:8] == b"ftyp":
+        return ".m4a"
+    if head[:2] in (b"\xff\xf1", b"\xff\xf9") or head.startswith(b"ID3"):
+        return ".mp3"
+    if head.startswith(b"OggS"):
+        return ".ogg"
+    return ""
+
+
 def handle_file(path: Path, work: Path, meta: dict) -> list[str]:
-    local = work / path.name
+    local = work / (path.name + ("" if path.suffix else sniff_suffix(path)))
     shutil.copy2(path, local)
+    path = local
     meta.update(title=path.name)
     if path.suffix.lower() == ".pdf":
         from pypdf import PdfReader
