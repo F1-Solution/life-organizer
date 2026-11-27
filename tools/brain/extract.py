@@ -39,6 +39,7 @@ UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.3
 _whisper = None
 _ocr = None
 IG_PAUSE = (60, 150)  # Seconds between Instagram downloads: faster bursts make Instagram drop the session.
+IG_MAX_FAILS = 3
 
 
 class SessionLost(RuntimeError):
@@ -363,7 +364,7 @@ def main() -> None:
     if any(c["url"] and "instagram.com" in c["url"] for c in items.values()):
         export_cookies()
     store = None if a.no_ftp else FtpStore()
-    ig_seen = False
+    ig_seen, ig_fails = False, 0
     try:
         for i, cid in enumerate(wanted, 1):
             done = OUT / cid / "meta.json"
@@ -380,6 +381,11 @@ def main() -> None:
                 meta = process(items[cid], store)
             except SessionLost as exc:
                 raise SystemExit(f"[{i}/{len(wanted)}] {cid}: Instagram ha chiuso la sessione ({exc}); rifare il login e rilanciare.")
+            if meta.get("kind") == "instagram":
+                # A checkpoint answers 400 like a removed post: several failures in a row mean the account is blocked.
+                ig_fails = ig_fails + 1 if meta["stato"] == "errore" else 0
+                if ig_fails >= IG_MAX_FAILS:
+                    raise SystemExit(f"[{i}/{len(wanted)}] {IG_MAX_FAILS} errori Instagram di fila: controllare l'account e rilanciare.")
             print(f"[{i}/{len(wanted)}] {cid} {meta.get('kind')} {meta['stato']} {meta.get('errore', '')[:120]}", flush=True)
     finally:
         if store:
