@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.13"
 # dependencies = ["yt-dlp[default]", "curl_cffi", "gallery-dl", "trafilatura>=1.12", "faster-whisper>=1.0", "rapidocr-onnxruntime>=1.3",
-#                 "pypdf>=4", "pillow>=10", "playwright>=1.48", "requests>=2"]
+#                 "pypdf>=4", "pypdfium2>=4", "pillow>=10", "playwright>=1.48", "requests>=2"]
 # ///
 """Phase 3, step 1: download each catalog item, extract its text (article, README, transcript, OCR), upload originals to FTP."""
 from __future__ import annotations
@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import traceback
+import zipfile
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -28,7 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ftp_store import FtpStore  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / "vault" / "_estratti"
+VAULT = Path(os.environ.get("BRAIN_VAULT", "C:/ObsidianVault"))  # The Obsidian vault lives outside this repo.
+OUT = VAULT / "_estratti"
 IG_DIR = Path(os.environ["USERPROFILE"]) / ".config" / "instagram-reader"
 COOKIES = IG_DIR / "cookies.txt"
 STAGE = Path(os.environ["USERPROFILE"]) / "second-brain-originali"  # Holds originals while no private FTP folder exists.
@@ -264,7 +266,59 @@ def sniff_suffix(path: Path) -> str:
         return ".mp3"
     if head.startswith(b"OggS"):
         return ".ogg"
+    if head.startswith(b"PK"):
+        with zipfile.ZipFile(path) as z:
+            names = z.namelist()
+        return ".docx" if "word/document.xml" in names else ".xlsx" if "xl/workbook.xml" in names else ".zip"
+    sample = path.read_bytes()[:4096]
+    if b"\x00" not in sample:
+        try:
+            text = sample.decode("utf-8")
+        except UnicodeDecodeError:
+            return ""
+        return ".html" if text.lstrip().startswith("<") else ".txt"
     return ""
+
+
+def pdf_text(path: Path, max_ocr_pages: int = 20) -> str:
+    """Return the PDF text layer, or the OCR of its first pages when it has none (scans)."""
+    from pypdf import PdfReader
+
+    text = "\n".join((p.extract_text() or "") for p in PdfReader(path).pages)
+    if len(text.strip()) >= 100:
+        return "## Testo PDF\n\n" + text
+    import pypdfium2
+
+    pages = []
+    pdf = pypdfium2.PdfDocument(path)
+    for n in range(min(len(pdf), max_ocr_pages)):
+        img = path.with_name(f"{path.stem}-p{n + 1}.png")
+        pdf[n].render(scale=2).to_pil().save(img)
+        pages.append(f"### Pagina {n + 1}\n\n{ocr(img)}")
+        img.unlink()
+    more = f"\n\n(OCR limitato alle prime {max_ocr_pages} pagine su {len(pdf)}.)" if len(pdf) > max_ocr_pages else ""
+    return "## OCR PDF\n\n" + "\n\n".join(pages) + more
+
+
+def docx_text(path: Path) -> str:
+    with zipfile.ZipFile(path) as z:
+        xml = z.read("word/document.xml").decode("utf-8", errors="replace")
+    paragraphs = (re.sub(r"<[^>]+>", "", p) for p in re.split(r"</w:p>", xml))
+    return "## Testo Word\n\n" + "\n".join(p for p in paragraphs if p.strip())
+
+
+def xlsx_text(path: Path) -> str:
+    """Return the text cells of a workbook (its shared strings), enough to tell what the sheet is about."""
+    with zipfile.ZipFile(path) as z:
+        xml = z.read("xl/sharedStrings.xml").decode("utf-8", errors="replace") if "xl/sharedStrings.xml" in z.namelist() else ""
+    cells = (re.sub(r"<[^>]+>", "", s) for s in re.split(r"</si>", xml))
+    return "## Testo Excel\n\n" + "\n".join(c for c in cells if c.strip())
+
+
+def zip_listing(path: Path) -> str:
+    with zipfile.ZipFile(path) as z:
+        names = [f"- {i.filename} ({i.file_size} byte)" for i in z.infolist() if not i.is_dir()]
+    return "## Contenuto dell'archivio\n\n" + "\n".join(names)
 
 
 def handle_file(path: Path, work: Path, meta: dict) -> list[str]:
@@ -272,11 +326,21 @@ def handle_file(path: Path, work: Path, meta: dict) -> list[str]:
     shutil.copy2(path, local)
     path = local
     meta.update(title=path.name)
-    if path.suffix.lower() == ".pdf":
-        from pypdf import PdfReader
+    suffix = path.suffix.lower()
+    if suffix == ".pdf":
+        return [pdf_text(local)]
+    if suffix == ".docx":
+        return [docx_text(local)]
+    if suffix == ".xlsx" or (suffix == ".zip" and sniff_suffix(local) == ".xlsx"):
+        return [xlsx_text(local)]
+    if suffix == ".zip":
+        return [zip_listing(local)]
+    if suffix == ".html":
+        import trafilatura
 
-        return ["## Testo PDF\n\n" + "\n".join((p.extract_text() or "") for p in PdfReader(local).pages)]
-    if path.suffix.lower() in {".md", ".txt"}:
+        raw = local.read_text(encoding="utf-8", errors="replace")
+        return ["## Testo HTML\n\n" + (trafilatura.extract(raw) or raw)]
+    if suffix in {".md", ".txt"}:
         return ["## Testo\n\n" + local.read_text(encoding="utf-8", errors="replace")]
     return media_text([local], meta)
 
@@ -317,7 +381,7 @@ def dispatch(item: dict, work: Path, meta: dict) -> list[str]:
 def upload_originals(work: Path, item: dict, meta: dict, store: FtpStore | None) -> None:
     fonte = item["fonti"][0].replace("-file", "").replace("-dm", "")
     anno = (item.get("prima_data") or str(date.today()))[:4]
-    originals = [f for f in work.iterdir() if f.is_file() and f.suffix.lower() in VIDEO | IMAGE | {".pdf", ".html", ".docx", ".zip"}]
+    originals = [f for f in work.iterdir() if f.is_file() and f.suffix.lower() in VIDEO | IMAGE | {".pdf", ".html", ".docx", ".xlsx", ".zip"}]
     meta["ftp"], meta["hash"] = [], {}
     for f in originals:
         meta["hash"][f.name] = sha256(f)
