@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Commit and push personal data (inbox/, data/, output/, docs/) to the private repo that shares this folder.
+# Commit and push personal data (inbox/, data/, output/, docs/, and the vault through the vault/ junction to C:/ObsidianVault) to the private repo.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 G="git --git-dir=.git-private --work-tree=."
