@@ -2,11 +2,12 @@
 # requires-python = ">=3.10"
 # dependencies = ["google-api-python-client>=2", "google-auth>=2", "openpyxl>=3"]
 # ///
-"""Move the to-do tasks of an approved plan into the "Da fare" list without due date, and turn idea tasks into vault/Idee.md; --dry-run only lists them."""
+"""Move the to-do tasks of an approved plan into the "Da fare" list without due date, and turn idea tasks into Idee.md in the vault; --dry-run only lists them."""
 from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from googleapiclient.discovery import build
@@ -14,6 +15,7 @@ from googleapiclient.discovery import build
 from tasks_delete import delete, load_credentials
 
 ROOT = Path(__file__).resolve().parents[2]
+VAULT = Path(os.environ.get("BRAIN_VAULT", "C:/ObsidianVault"))  # The Obsidian vault lives outside this repo.
 LIST_NAME = "Da fare"
 
 
@@ -38,7 +40,7 @@ def write_ideas(ideas: list[dict], path: Path) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--plan", type=Path, default=ROOT / "data" / "google" / "todo-piano.json")
-    p.add_argument("--ideas", type=Path, default=ROOT / "vault" / "Idee.md")
+    p.add_argument("--ideas", type=Path, default=VAULT / "Idee.md")
     p.add_argument("--log", type=Path, default=ROOT / "data" / "google" / "tasks-spostati.jsonl")
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args()

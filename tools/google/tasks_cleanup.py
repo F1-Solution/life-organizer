@@ -10,6 +10,7 @@ import json
 import re
 import sys
 from collections import defaultdict
+import os
 from pathlib import Path
 
 from googleapiclient.discovery import build
@@ -17,6 +18,7 @@ from googleapiclient.discovery import build
 from tasks_delete import delete, load_credentials, task_lists
 
 ROOT = Path(__file__).resolve().parents[2]
+VAULT = Path(os.environ.get("BRAIN_VAULT", "C:/ObsidianVault"))  # The Obsidian vault lives outside this repo.
 
 
 def scheda_states(vault: Path) -> dict[str, str]:
@@ -61,7 +63,7 @@ def repeated_tasks(export: Path, logs: list[Path]) -> dict[str, str]:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--catalog", type=Path, default=ROOT / "data" / "brain" / "catalog.jsonl")
-    p.add_argument("--vault", type=Path, default=ROOT / "vault")
+    p.add_argument("--vault", type=Path, default=VAULT)
     p.add_argument("--tasks", type=Path, default=ROOT / "data" / "google" / "tasks.ndjson")
     p.add_argument("--log", type=Path, default=ROOT / "data" / "google" / "tasks-cancellati.jsonl")
     p.add_argument("--moved", type=Path, default=ROOT / "data" / "google" / "tasks-spostati.jsonl")

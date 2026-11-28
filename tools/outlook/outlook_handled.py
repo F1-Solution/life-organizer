@@ -8,9 +8,11 @@ import argparse
 import json
 import re
 import sys
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+VAULT = Path(os.environ.get("BRAIN_VAULT", "C:/ObsidianVault"))  # The Obsidian vault lives outside this repo.
 sys.path.insert(0, str(ROOT / "tools" / "brain"))
 from collect_links import URL_RE, normalize  # noqa: E402
 
@@ -43,7 +45,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--export", type=Path, required=True, help="JSON from outlook_daily.ps1")
     p.add_argument("--catalog", type=Path, default=ROOT / "data" / "brain" / "catalog.jsonl")
-    p.add_argument("--vault", type=Path, default=ROOT / "vault")
+    p.add_argument("--vault", type=Path, default=VAULT)
     p.add_argument("--log", type=Path, default=ROOT / "data" / "outlook" / "eventi-cancellati.jsonl")
     p.add_argument("--out", type=Path, required=True, help="plan JSON for outlook_cleanup.ps1")
     p.add_argument("--transcribed", type=Path, default=ROOT / "data" / "outlook" / "todo-trascritti.jsonl",
